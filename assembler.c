@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #define MAXLINELENGTH 1000
 
@@ -51,24 +52,57 @@ int main(int argc, char *argv[])
     int trace = 0;
     int num_label = 0;
 
-    struct labelInfo idx[MAXLINELENGTH];
+    int text_size = 0, data_size = 0, symbol_size = 0, relocation_size = 0;
+
+    struct labelInfo labels[MAXLINELENGTH];
 
     while (readAndParse(inFilePtr, label, opcode, arg0, arg1, arg2))
     {
+        //* Update labels present
         if (strcmp(label, "") != 0)
         {
+
+            //Check whether there are duplciate labels(global and local)
             for (int i = 0; i < num_label; i++)
             {
-                if (strcmp(idx[i].label, label) == 0)
-                {
+                if (strcmp(labels[i].label, label) == 0)
                     exit(1);
-                }
             }
-
-            strcpy(idx[num_label].label, label);
-            idx[num_label].addr = trace;
-
+            if (label[0] >= 'A' && label[0] <= 'Z')
+            {
+                symbol_size++;
+            }
+            else
+            {
+                strcpy(labels[num_label].label, label);
+                labels[num_label].addr = trace;
+            }
             num_label++;
+        }
+
+        //* Update the size of data and text
+        // When the line is a directive
+        if (strcmp(opcode, ".fill") == 0)
+            data_size++;
+        // Or if the line is a instruction
+        else
+            text_size++;
+
+        //* Update the size of relocation table
+        if (strcmp(opcode, ".fill") == 0 &&
+            !isNumber(arg0))
+        {
+            relocation_size++;
+        }
+        if (strcmp(opcode, "lw") == 0 &&
+            !isNumber(arg2))
+        {
+            relocation_size++;
+        }
+        if (strcmp(opcode, "sw") == 0 &&
+            !isNumber(arg2))
+        {
+            relocation_size++;
         }
 
         trace++;
@@ -76,6 +110,101 @@ int main(int argc, char *argv[])
 
     /* this is how to rewind the file ptr so that you start reading from the
         beginning of the file */
+    rewind(inFilePtr);
+
+    while (readAndParse(inFilePtr, label, opcode, arg0, arg1, arg2))
+    {
+        //* Update the size of symbol table part 2
+
+        if ((strcmp(opcode, ".fill") == 0 &&
+             !isNumber(arg0)))
+        {
+            int defined = 0;
+            for (int i = 0; i < num_label; i++)
+            {
+                if (strcmp(labels[i].label, arg0) == 0)
+                {
+                    defined = 1;
+                    break;
+                }
+            }
+
+            if (!defined)
+            {
+                strcpy(labels[num_label].label, arg0);
+                labels[num_label].addr = 0;
+                symbol_size++;
+                num_label++;
+                symbol_size++;
+            }
+        }
+        else if (strcmp(opcode, "lw") == 0 &&
+                 !isNumber(arg2))
+        {
+            int defined = 0;
+            for (int i = 0; i < num_label; i++)
+            {
+                if (strcmp(labels[i].label, arg2) == 0)
+                {
+                    defined = 1;
+                    break;
+                }
+            }
+
+            if (!defined)
+            {
+                strcpy(labels[num_label].label, arg2);
+                labels[num_label].addr = 0;
+                num_label++;
+                symbol_size++;
+            }
+        }
+
+        else if (strcmp(opcode, "sw") == 0 &&
+                 !isNumber(arg2))
+        {
+            int defined = 0;
+            for (int i = 0; i < num_label; i++)
+            {
+                if (strcmp(labels[i].label, arg2) == 0)
+                {
+                    defined = 1;
+                    break;
+                }
+            }
+
+            if (!defined)
+            {
+                strcpy(labels[num_label].label, arg2);
+                labels[num_label].addr = 0;
+                num_label++;
+                symbol_size++;
+            }
+        }
+        else if (strcmp(opcode, "beq") == 0 &&
+                 !isNumber(arg2))
+        {
+            int defined = 0;
+            for (int i = 0; i < num_label; i++)
+            {
+                if (strcmp(labels[i].label, arg2) == 0)
+                {
+                    defined = 1;
+                    break;
+                }
+            }
+
+            if (!defined)
+            {
+                strcpy(labels[num_label].label, arg2);
+                labels[num_label].addr = 0;
+                num_label++;
+                symbol_size++;
+            }
+        }
+    }
+    fprintf(outFilePtr, "%d %d %d %d\n", text_size, data_size, symbol_size, relocation_size);
+
     rewind(inFilePtr);
 
     int instruction;
@@ -126,9 +255,9 @@ int main(int argc, char *argv[])
                 int found = 0;
                 for (int i = 0; i < num_label; i++)
                 {
-                    if (strcmp(idx[i].label, arg2) == 0)
+                    if (strcmp(labels[i].label, arg2) == 0)
                     {
-                        instruction += idx[i].addr;
+                        instruction += labels[i].addr;
                         found = 1;
                         break;
                     }
@@ -157,9 +286,9 @@ int main(int argc, char *argv[])
                 int found = 0;
                 for (int i = 0; i < num_label; i++)
                 {
-                    if (strcmp(idx[i].label, arg2) == 0)
+                    if (strcmp(labels[i].label, arg2) == 0)
                     {
-                        instruction += idx[i].addr;
+                        instruction += labels[i].addr;
                         found = 1;
                         break;
                     }
@@ -189,9 +318,9 @@ int main(int argc, char *argv[])
                 for (int i = 0; i < num_label; i++)
                 {
 
-                    if (strcmp(idx[i].label, arg2) == 0)
+                    if (strcmp(labels[i].label, arg2) == 0)
                     {
-                        instruction += ((idx[i].addr - PC - 1) & 0xFFFF);
+                        instruction += ((labels[i].addr - PC - 1) & 0xFFFF);
                         found = 1;
 
                         break;
@@ -236,9 +365,9 @@ int main(int argc, char *argv[])
                 int found = 0;
                 for (int i = 0; i < num_label; i++)
                 {
-                    if (strcmp(idx[i].label, arg0) == 0)
+                    if (strcmp(labels[i].label, arg0) == 0)
                     {
-                        instruction += idx[i].addr;
+                        instruction += labels[i].addr;
                         found = 1;
                         break;
                     }
@@ -259,6 +388,25 @@ int main(int argc, char *argv[])
         instruction = 0;
     }
 
+    char global_state;
+    for (int i = 0; i < num_label; i++)
+    {
+        if ((labels[i].label[0] >= 'A' && labels[i].label[0] <= 'Z'))
+        {
+            if (labels[i].addr == 0)
+                global_state = 'U';
+            else
+            {
+                if (labels[i].addr < text_size)
+                    global_state = 'T';
+                else
+                    global_state = 'D';
+            }
+
+            fprintf(outFilePtr, "%s %c %d\n", labels[i].label, global_state, labels[i].addr);
+        }
+    }
+    fclose(outFilePtr);
     return (0);
 }
 
