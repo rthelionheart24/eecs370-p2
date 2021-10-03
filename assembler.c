@@ -19,6 +19,20 @@ struct labelInfo
     int addr;
 };
 
+struct symbolInfo
+{
+    char symbol[7];
+    char section;
+    int addr;
+};
+
+struct relocationTable
+{
+    char symbol[7];
+    int addr;
+    char operation[7];
+};
+
 int main(int argc, char *argv[])
 {
     char *inFileString, *outFileString;
@@ -52,9 +66,11 @@ int main(int argc, char *argv[])
     int trace = 0;
     int num_label = 0;
 
-    int text_size = 0, data_size = 0, symbol_size = 0, relocation_size = 0;
+    int text_size = 0, data_size = 0, global_symbol_size = 0, relocation_size = 0;
 
     struct labelInfo labels[MAXLINELENGTH];
+    struct symbolInfo symbols[MAXLINELENGTH];
+    struct relocationTable relocations[MAXLINELENGTH];
 
     while (readAndParse(inFilePtr, label, opcode, arg0, arg1, arg2))
     {
@@ -70,13 +86,14 @@ int main(int argc, char *argv[])
             }
             if (label[0] >= 'A' && label[0] <= 'Z')
             {
-                symbol_size++;
+                strcpy(symbols[global_symbol_size].symbol, label);
+                symbols[global_symbol_size].addr = trace;
+                global_symbol_size++;
             }
-            else
-            {
-                strcpy(labels[num_label].label, label);
-                labels[num_label].addr = trace;
-            }
+
+            strcpy(labels[num_label].label, label);
+            labels[num_label].addr = trace;
+
             num_label++;
         }
 
@@ -92,16 +109,25 @@ int main(int argc, char *argv[])
         if (strcmp(opcode, ".fill") == 0 &&
             !isNumber(arg0))
         {
+            strcpy(relocations[relocation_size].symbol, arg0);
+            relocations[relocation_size].addr = trace;
+            strcpy(relocations[relocation_size].operation, ".fill");
             relocation_size++;
         }
         if (strcmp(opcode, "lw") == 0 &&
             !isNumber(arg2))
         {
+            strcpy(relocations[relocation_size].symbol, arg2);
+            relocations[relocation_size].addr = trace;
+            strcpy(relocations[relocation_size].operation, "lw");
             relocation_size++;
         }
         if (strcmp(opcode, "sw") == 0 &&
             !isNumber(arg2))
         {
+            strcpy(relocations[relocation_size].symbol, arg2);
+            relocations[relocation_size].addr = trace;
+            strcpy(relocations[relocation_size].operation, "sw");
             relocation_size++;
         }
 
@@ -112,6 +138,8 @@ int main(int argc, char *argv[])
         beginning of the file */
     rewind(inFilePtr);
 
+    trace = 0;
+
     while (readAndParse(inFilePtr, label, opcode, arg0, arg1, arg2))
     {
         //* Update the size of symbol table part 2
@@ -119,91 +147,102 @@ int main(int argc, char *argv[])
         if ((strcmp(opcode, ".fill") == 0 &&
              !isNumber(arg0)))
         {
-            int defined = 0;
-            for (int i = 0; i < num_label; i++)
+            if (arg0[0] >= 'A' && arg0[0] <= 'Z')
             {
-                if (strcmp(labels[i].label, arg0) == 0)
+                int defined = 0;
+                for (int i = 0; i < global_symbol_size; i++)
                 {
-                    defined = 1;
-                    break;
+                    if (strcmp(symbols[i].symbol, arg0) == 0)
+                    {
+                        defined = 1;
+                        break;
+                    }
                 }
-            }
 
-            if (!defined)
-            {
-                strcpy(labels[num_label].label, arg0);
-                labels[num_label].addr = 0;
-                symbol_size++;
-                num_label++;
-                symbol_size++;
+                if (!defined)
+                {
+
+                    strcpy(symbols[global_symbol_size].symbol, arg0);
+                    symbols[global_symbol_size].addr = 0;
+                    global_symbol_size++;
+                }
             }
         }
         else if (strcmp(opcode, "lw") == 0 &&
                  !isNumber(arg2))
         {
-            int defined = 0;
-            for (int i = 0; i < num_label; i++)
+            if (arg2[0] >= 'A' && arg2[0] <= 'Z')
             {
-                if (strcmp(labels[i].label, arg2) == 0)
+                int defined = 0;
+                for (int i = 0; i < global_symbol_size; i++)
                 {
-                    defined = 1;
-                    break;
+                    if (strcmp(symbols[i].symbol, arg2) == 0)
+                    {
+                        defined = 1;
+                        break;
+                    }
                 }
-            }
 
-            if (!defined)
-            {
-                strcpy(labels[num_label].label, arg2);
-                labels[num_label].addr = 0;
-                num_label++;
-                symbol_size++;
+                if (!defined)
+                {
+
+                    strcpy(symbols[global_symbol_size].symbol, arg2);
+                    symbols[global_symbol_size].addr = 0;
+                    global_symbol_size++;
+                }
             }
         }
 
         else if (strcmp(opcode, "sw") == 0 &&
                  !isNumber(arg2))
         {
-            int defined = 0;
-            for (int i = 0; i < num_label; i++)
+            if (arg2[0] >= 'A' && arg2[0] <= 'Z')
             {
-                if (strcmp(labels[i].label, arg2) == 0)
+                int defined = 0;
+                for (int i = 0; i < global_symbol_size; i++)
                 {
-                    defined = 1;
-                    break;
+                    if (strcmp(symbols[i].symbol, arg2) == 0)
+                    {
+                        defined = 1;
+                        break;
+                    }
                 }
-            }
 
-            if (!defined)
-            {
-                strcpy(labels[num_label].label, arg2);
-                labels[num_label].addr = 0;
-                num_label++;
-                symbol_size++;
+                if (!defined)
+                {
+
+                    strcpy(symbols[global_symbol_size].symbol, arg2);
+                    symbols[global_symbol_size].addr = 0;
+                    global_symbol_size++;
+                }
             }
         }
         else if (strcmp(opcode, "beq") == 0 &&
                  !isNumber(arg2))
         {
-            int defined = 0;
-            for (int i = 0; i < num_label; i++)
+            if (arg2[0] >= 'A' && arg2[0] <= 'Z')
             {
-                if (strcmp(labels[i].label, arg2) == 0)
+                int defined = 0;
+                for (int i = 0; i < global_symbol_size; i++)
                 {
-                    defined = 1;
-                    break;
+                    if (strcmp(symbols[i].symbol, arg2) == 0)
+                    {
+                        defined = 1;
+                        break;
+                    }
                 }
-            }
 
-            if (!defined)
-            {
-                strcpy(labels[num_label].label, arg2);
-                labels[num_label].addr = 0;
-                num_label++;
-                symbol_size++;
+                if (!defined)
+                {
+
+                    strcpy(symbols[global_symbol_size].symbol, arg2);
+                    symbols[global_symbol_size].addr = 0;
+                    global_symbol_size++;
+                }
             }
         }
     }
-    fprintf(outFilePtr, "%d %d %d %d\n", text_size, data_size, symbol_size, relocation_size);
+    fprintf(outFilePtr, "%d %d %d %d\n", text_size, data_size, global_symbol_size, relocation_size);
 
     rewind(inFilePtr);
 
@@ -262,7 +301,7 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
-                if (!found)
+                if (!found && (arg2[0] < 'A' && arg2[0] > 'Z'))
                     exit(1);
             }
         }
@@ -293,7 +332,7 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
-                if (!found)
+                if (!found && (arg2[0] < 'A' && arg2[0] > 'Z'))
                     exit(1);
             }
         }
@@ -326,7 +365,7 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
-                if (!found)
+                if (!found && (arg2[0] < 'A' && arg2[0] > 'Z'))
                     exit(1);
             }
         }
@@ -372,7 +411,7 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
-                if (!found)
+                if (!found && (arg2[0] < 'A' && arg2[0] > 'Z'))
                     exit(1);
             }
         }
@@ -388,25 +427,34 @@ int main(int argc, char *argv[])
         instruction = 0;
     }
 
-    char global_state;
-    for (int i = 0; i < num_label; i++)
+    for (int i = 0; i < global_symbol_size; i++)
     {
-        if ((labels[i].label[0] >= 'A' && labels[i].label[0] <= 'Z'))
+        if (symbols[i].addr == 0)
+            symbols[i].section = 'U';
+        else
         {
-            if (labels[i].addr == 0)
-                global_state = 'U';
+            if (symbols[i].addr < text_size)
+                symbols[i].section = 'T';
             else
             {
-                if (labels[i].addr < text_size)
-                    global_state = 'T';
-                else
-                    global_state = 'D';
+                symbols[i].section = 'D';
+                symbols[i].addr -= text_size;
             }
-
-            fprintf(outFilePtr, "%s %c %d\n", labels[i].label, global_state, labels[i].addr);
         }
+
+        fprintf(outFilePtr, "%s %c %d\n", symbols[i].symbol, symbols[i].section, symbols[i].addr);
     }
-    fclose(outFilePtr);
+
+    for (int i = 0; i < relocation_size; i++)
+    {
+
+        if (relocations[i].addr >= text_size)
+        {
+            relocations[i].addr -= text_size;
+        }
+        fprintf(outFilePtr, "%d %s %s\n", relocations[i].addr, relocations[i].operation, relocations[i].symbol);
+    }
+
     return (0);
 }
 
@@ -466,4 +514,27 @@ int isNumber(char *string)
     /* return 1 if string is a number */
     int i;
     return ((sscanf(string, "%d", &i)) == 1);
+}
+
+int label_defined(char label[7], struct labelInfo labels[MAXLINELENGTH], int label_size)
+{
+
+    for (int i = 0; i < label_size; i++)
+    {
+        if (strcmp(label, labels[i].label) == 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+int symbol_defined(char symbol[7], struct symbolInfo symbols[MAXLINELENGTH], int symbol_size)
+{
+    for (int i = 0; i < symbol_size; i++)
+    {
+        if (strcmp(symbol, symbols[i].symbol) == 0)
+            return 1;
+    }
+
+    return 0;
 }
