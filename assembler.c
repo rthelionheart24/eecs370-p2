@@ -84,6 +84,12 @@ int main(int argc, char *argv[])
                 if (strcmp(labels[i].label, label) == 0)
                     exit(1);
             }
+            for (int i = 0; i < global_symbol_size; i++)
+            {
+                if (strcmp(symbols[i].symbol, label) == 0)
+                    exit(1);
+            }
+
             if (label[0] >= 'A' && label[0] <= 'Z')
             {
                 strcpy(symbols[global_symbol_size].symbol, label);
@@ -163,7 +169,7 @@ int main(int argc, char *argv[])
                 {
 
                     strcpy(symbols[global_symbol_size].symbol, arg0);
-                    symbols[global_symbol_size].addr = 0;
+                    symbols[global_symbol_size].addr = -1;
                     global_symbol_size++;
                 }
             }
@@ -187,7 +193,7 @@ int main(int argc, char *argv[])
                 {
 
                     strcpy(symbols[global_symbol_size].symbol, arg2);
-                    symbols[global_symbol_size].addr = 0;
+                    symbols[global_symbol_size].addr = -1;
                     global_symbol_size++;
                 }
             }
@@ -212,7 +218,7 @@ int main(int argc, char *argv[])
                 {
 
                     strcpy(symbols[global_symbol_size].symbol, arg2);
-                    symbols[global_symbol_size].addr = 0;
+                    symbols[global_symbol_size].addr = -1;
                     global_symbol_size++;
                 }
             }
@@ -236,7 +242,7 @@ int main(int argc, char *argv[])
                 {
 
                     strcpy(symbols[global_symbol_size].symbol, arg2);
-                    symbols[global_symbol_size].addr = 0;
+                    symbols[global_symbol_size].addr = -1;
                     global_symbol_size++;
                 }
             }
@@ -353,20 +359,41 @@ int main(int argc, char *argv[])
             }
             else
             {
-                int found = 0;
-                for (int i = 0; i < num_label; i++)
+                if (arg2[0] < 'A' && arg2[0] > 'Z')
                 {
-
-                    if (strcmp(labels[i].label, arg2) == 0)
+                    int found = 0;
+                    for (int i = 0; i < global_symbol_size; i++)
                     {
-                        instruction += ((labels[i].addr - PC - 1) & 0xFFFF);
-                        found = 1;
 
-                        break;
+                        if (strcmp(symbols[i].symbol, arg2) == 0)
+                        {
+                            instruction += ((symbols[i].addr - PC - 1) & 0xFFFF);
+                            found = 1;
+
+                            break;
+                        }
                     }
+                    if (!found)
+                        break;
                 }
-                if (!found && (arg2[0] < 'A' && arg2[0] > 'Z'))
-                    exit(1);
+                else
+                {
+                    int found = 0;
+                    for (int i = 0; i < num_label; i++)
+                    {
+
+                        if (strcmp(labels[i].label, arg2) == 0)
+                        {
+                            instruction += ((labels[i].addr - PC - 1) & 0xFFFF);
+                            found = 1;
+
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                        exit(1);
+                }
             }
         }
         else if (!strcmp(opcode, "jalr"))
@@ -429,8 +456,11 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < global_symbol_size; i++)
     {
-        if (symbols[i].addr == 0)
+        if (symbols[i].addr == -1)
+        {
             symbols[i].section = 'U';
+            symbols[i].addr = 0;
+        }
         else
         {
             if (symbols[i].addr < text_size)
