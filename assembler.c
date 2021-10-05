@@ -374,7 +374,7 @@ int main(int argc, char *argv[])
                         }
                     }
                     if (!found)
-                        break;
+                        exit(1);
                 }
                 else
                 {
