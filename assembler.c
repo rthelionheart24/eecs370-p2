@@ -82,12 +82,10 @@ int main(int argc, char *argv[])
             for (int i = 0; i < num_label; i++)
             {
                 if (strcmp(labels[i].label, label) == 0)
+                {
+                    printf("%s", "Duplicate label");
                     exit(1);
-            }
-            for (int i = 0; i < global_symbol_size; i++)
-            {
-                if (strcmp(symbols[i].symbol, label) == 0)
-                    exit(1);
+                }
             }
 
             if (label[0] >= 'A' && label[0] <= 'Z')
@@ -293,7 +291,10 @@ int main(int argc, char *argv[])
                 if (atoi(arg2) <= 32767 && atoi(arg2) >= -32768)
                     instruction += (atoi(arg2) & 0xFFFF);
                 else
+                {
+                    printf("%s", "offsetField not within 16 bits.");
                     exit(1);
+                }
             }
             else
             {
@@ -307,8 +308,11 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
-                if (!found && (arg2[0] < 'A' && arg2[0] > 'Z'))
+                if (!found && (arg2[0] < 'A' || arg2[0] > 'Z'))
+                {
+                    printf("%s", "Undefined local variable.");
                     exit(1);
+                }
             }
         }
         else if (!strcmp(opcode, "sw"))
@@ -338,7 +342,7 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
-                if (!found && (arg2[0] < 'A' && arg2[0] > 'Z'))
+                if (!found && (arg2[0] < 'A' || arg2[0] > 'Z'))
                     exit(1);
             }
         }
@@ -359,41 +363,21 @@ int main(int argc, char *argv[])
             }
             else
             {
-                if (arg2[0] < 'A' && arg2[0] > 'Z')
+                int found = 0;
+                for (int i = 0; i < num_label; i++)
                 {
-                    int found = 0;
-                    for (int i = 0; i < global_symbol_size; i++)
+
+                    if (strcmp(labels[i].label, arg2) == 0)
                     {
+                        instruction += ((labels[i].addr - PC - 1) & 0xFFFF);
+                        found = 1;
 
-                        if (strcmp(symbols[i].symbol, arg2) == 0)
-                        {
-                            instruction += ((symbols[i].addr - PC - 1) & 0xFFFF);
-                            found = 1;
-
-                            break;
-                        }
+                        break;
                     }
-                    if (!found)
-                        exit(1);
                 }
-                else
-                {
-                    int found = 0;
-                    for (int i = 0; i < num_label; i++)
-                    {
 
-                        if (strcmp(labels[i].label, arg2) == 0)
-                        {
-                            instruction += ((labels[i].addr - PC - 1) & 0xFFFF);
-                            found = 1;
-
-                            break;
-                        }
-                    }
-
-                    if (!found)
-                        exit(1);
-                }
+                if (!found)
+                    exit(1);
             }
         }
         else if (!strcmp(opcode, "jalr"))
@@ -438,7 +422,7 @@ int main(int argc, char *argv[])
                         break;
                     }
                 }
-                if (!found && (arg2[0] < 'A' && arg2[0] > 'Z'))
+                if (!found && (arg0[0] < 'A' || arg0[0] > 'Z'))
                     exit(1);
             }
         }

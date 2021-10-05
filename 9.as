@@ -1,5 +1,5 @@
 	lw	0	1	mime	load reg1 with 5 (symbolic address)
-	lw	1	2	65555555	load reg2 with -1 (numeric address)
+	lw	1	2	1	load reg2 with -1 (numeric address)
 start	add	1	2	1	decrement reg1
 	beq	0	1	2	goto end of program when reg1==0
 	ben	0	0	start	go back to the beginning of the loop
