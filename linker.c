@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #define MAXSIZE 300
 #define MAXLINELENGTH 1000
@@ -56,8 +57,8 @@ struct CombinedFiles
 	int symTableSize;
 	int relocTableSize;
 };
-int checkRelocationTableForText(FileData files, int location);
-int checkRelocationTableForData(FileData files, int location);
+
+int checkDuplicateGlobalandStack(CombinedFiles final);
 int countTextSize(struct FileData files[MAXFILES], int argc);
 int countDataSize(struct FileData files[MAXFILES], int argc);
 int countSymbolTableSize(struct FileData files[MAXFILES], int argc);
@@ -180,89 +181,199 @@ int main(int argc, char *argv[])
 		files[i].textStartingLine = files[i - 1].textStartingLine + files[i - 1].textSize;
 		files[i].dataStartingLine = files[i - 1].dataStartingLine + files[i - 1].dataSize;
 	}
+	int traceT = 0, traceD = final.textSize, traceR = 0, traceS = 0;
+	for (int i = 0; i < argc - 2; i++)
+	{
+		for (int t = 0; t < files[i].textSize; t++)
+		{
+			final.text[traceT++] = files[i].text[t];
+		}
+		for (int d = 0; d < files[i].dataSize; d++)
+		{
+			final.data[traceD++] = files[i].data[d];
+		}
+		for (int s = 0; s < files[i].symbolTableSize; s++)
+		{
+			if (files[i].symbolTable[s].location != 'U')
+				final.symTable[traceS++] = files[i].symbolTable[s];
+		}
+		for (int r = 0; r < files[i].relocationTableSize; r++)
+		{
+			final.relocTable[traceR++] = files[i].relocTable[r];
+		}
+	}
+	// ! Check for duplicate global labels and definition of Stack
+	if (checkDuplicateGlobalandStack(final) == 1)
+		exit(1);
 
 	for (int i = 0; i < argc - 2; i++)
 	{
-		for (int j = 0; j < files[i].textSize; j++)
+		for (int j = 0; j < files[i].relocationTableSize; j++)
 		{
-			// If the current text involves the use of relocation table
-			if (checkRelocationTableForText(files[i], j) != -1)
+			int text, offset, additonal_offset = 0;
+			text = files[i].text[files[i].relocTable[j].offset];
+			offset = text & 0x00FF;
+
+			// If the symbol involved is global
+			if (isupper(files[i].relocTable[j].label[0]))
 			{
-				// ! Do something here to modified the text that uses symbolic address
-				// ! May need to differentiate between global and local
 
-				int offset_value = files[i].text[j] & 0x00FF;
+				int temp[2];
+				temp[0] = -1;
 
-				// When the symbol is in the data section
-				if (offset_value > files[i].textSize - 1)
+				char global[7];
+				strcpy(global, files[i].relocTable[j].label);
+
+				// If this global label is "Stack"
+				if (strcmp(global, "Stack") == 0)
 				{
-					files[i].text[j] = files[i].text[j] - offset_value + files[i].dataStartingLine + (j + 1 - files[i].dataSize);
+
+					// When the line using symbol is in text
+					if (files[i].relocTable[j].offset + additonal_offset < files[i].textSize)
+					{
+						final.text[files[i].textStartingLine + j] += (final.textSize + final.dataSize);
+					}
+					// When the line using the symbol is in data
+					else
+					{
+						final.data[files[i].textStartingLine + j] += (final.textSize + final.dataSize);
+					}
+
+					continue;
 				}
-				// When the symbol is in the text section
+
+				// If this global label is .fill
+				if (strcmp(files[i].relocTable[j].inst, ".fill") == 0)
+				{
+					additonal_offset = files[i].textSize;
+				}
+
+				// Search for the global label
+				for (int i = 0; i < argc - 2; i++)
+				{
+					for (int j = 0; j < files[i].symbolTableSize; j++)
+					{
+
+						if (strcmp(files[i].symbolTable[j].label, global) == 0 && files[i].symbolTable[j].location != 'U')
+						{
+							// If the global symbol is in text
+							if (files[i].symbolTable[j].location == 'T')
+							{
+								temp[0] = 0;
+								temp[1] = files[i].textStartingLine + files[i].symbolTable[j].offset;
+							}
+							// If the global symbol is in data
+							else
+							{
+								temp[0] = 1;
+								temp[1] = files[i].dataStartingLine + files[i].symbolTable[j].offset;
+							}
+						}
+					}
+				}
+
+				// ! Error checking: when the global symbol is undefined
+				if (temp[0] == -1)
+					exit(1);
+
+				// When the line using symbol is in text
+				if (files[i].relocTable[j].offset + additonal_offset < files[i].textSize)
+				{
+					// If the label is in text
+					if (temp[0] == 0)
+					{
+						final.text[files[i].textStartingLine + j] += temp[1];
+					}
+					// If the label is in data
+					else
+					{
+						final.text[files[i].textStartingLine + j] += temp[1];
+					}
+				}
+				// When the line using the symbol is in data
 				else
 				{
+					// If the label is in text
+					if (temp[0] == 0)
+					{
+						final.data[files[i].dataStartingLine + j] += temp[1];
+					}
+					// If the label is in data
+					else
+					{
+						final.data[files[i].dataStartingLine + j] += temp[1];
+					}
+				}
+			}
+			// Local label
+			else
+			{
+				if (strcmp(files[i].relocTable[j].inst, ".fill") == 0)
+				{
+					additonal_offset = files[i].textSize;
 				}
 
-				fprintf(outFilePtr, "%d, This line needs to be modified\n", files[i].text[j]);
+				// When the line using symbol is in text
+				if (files[i].relocTable[j].offset + additonal_offset < files[i].textSize)
+				{
+					// If the label is in text
+					if (offset < files[i].textSize)
+					{
+						final.text[files[i].textStartingLine + j] -= offset;
+						final.text[files[i].textStartingLine + j] += files[i].textStartingLine + offset;
+					}
+					// If the label is in data
+					else
+					{
+						final.text[files[i].textStartingLine + j] -= offset;
+						final.text[files[i].textStartingLine + j] += files[i].dataStartingLine + offset - files[i].textSize;
+					}
+				}
+				// When the line using the symbol is in data
+				else
+				{
+					// If the label is in text
+					if (offset < files[i].textSize)
+					{
+						final.data[files[i].dataStartingLine + j] -= offset;
+						final.data[files[i].dataStartingLine + j] += files[i].textStartingLine + offset;
+					}
+					// If the label is in data
+					else
+					{
+						final.data[files[i].dataStartingLine + j] -= offset;
+						final.data[files[i].dataStartingLine + j] += files[i].dataStartingLine + offset - files[i].textSize;
+					}
+				}
 			}
-			else
-				fprintf(outFilePtr, "%d\n", files[i].text[j]);
 		}
 	}
 
-	for (int i = 0; i < argc - 2; i++)
+	for (int t = 0; t < final.textSize; t++)
 	{
-		for (int j = 0; j < files[i].dataSize; j++)
-		{
-			// If the current text involves the use of relocation table
-			if (checkRelocationTableForData(files[i], j) != -1)
-			{
-				// ! Do something here to modified the data that uses symbolic address
-				// ! May need to differentiate between global and local
-
-				/** 
-				 * * When the label is local, we can just shift it 
-				 * * by the starting location of the current file's
-				 * * text
-				 * */
-				files[i].data[j] += files[i].textStartingLine;
-
-				/**
-				 * * If the label is global:
-				 * */
-
-				fprintf(outFilePtr, "%d, This line needs to be modified\n", files[i].data[j]);
-			}
-			else
-				fprintf(outFilePtr, "%d\n", files[i].data[j]);
-		}
+		fprintf(outFilePtr, "%d\n", final.text[t]);
+	}
+	for (int d = final.textSize; d < final.textSize + final.dataSize; d++)
+	{
+		fprintf(outFilePtr, "%d\n", final.data[d]);
 	}
 
+	return 0;
 } // main
 
-int checkRelocationTableForText(FileData files, int location)
+int checkDuplicateGlobalandStack(CombinedFiles final)
 {
-	for (int i = 0; i < files.relocationTableSize; i++)
+	for (int g = 0; g < final.symTableSize; g++)
 	{
-		if (files.relocTable[i].offset == location)
-			return i;
+		for (int j = 0; j < final.symTableSize && g != j; j++)
+			if (strcmp(final.symTable[g].label, final.symTable[j].label) == 0 || strcmp(final.symTable[g].label, "Stack") == 0)
+				return 1;
 	}
 
-	return -1;
+	return 0;
 }
 
-int checkRelocationTableForData(FileData files, int location)
-{
-	for (int i = 0; i < files.relocationTableSize; i++)
-	{
-		if (files.relocTable[i].offset == location && strcmp(files.relocTable[i].inst, ".fill") == 0)
-			return i;
-	}
-
-	return -1;
-}
-
-int countTextSize(struct FileData files[MAXFILES], int argc)
+int countTextSize(FileData files[MAXFILES], int argc)
 {
 	int count = 0;
 	for (int i = 0; i < argc - 2; i++)
@@ -272,7 +383,7 @@ int countTextSize(struct FileData files[MAXFILES], int argc)
 	return count;
 }
 
-int countDataSize(struct FileData files[MAXFILES], int argc)
+int countDataSize(FileData files[MAXFILES], int argc)
 {
 	int count = 0;
 	for (int i = 0; i < argc - 2; i++)
@@ -287,7 +398,11 @@ int countSymbolTableSize(struct FileData files[MAXFILES], int argc)
 	int count = 0;
 	for (int i = 0; i < argc - 2; i++)
 	{
-		count += files[i].symbolTableSize;
+		for (int j = 0; j < files[i].symbolTableSize; j++)
+		{
+			if (files[i].symbolTable[j].location != 'U')
+				count++;
+		}
 	}
 	return count;
 }
