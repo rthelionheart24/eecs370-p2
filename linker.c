@@ -210,7 +210,7 @@ int main(int argc, char *argv[])
 	{
 		for (int j = 0; j < files[i].relocationTableSize; j++)
 		{
-			int text, offset, additonal_offset = 0;
+			int text, offset;
 			text = files[i].text[files[i].relocTable[j].offset];
 			offset = text & 0x00FF;
 
@@ -229,7 +229,7 @@ int main(int argc, char *argv[])
 				{
 
 					// When the line using symbol is in text
-					if (files[i].relocTable[j].offset + additonal_offset < files[i].textSize)
+					if (files[i].relocTable[j].offset < files[i].textSize)
 					{
 						final.text[files[i].textStartingLine + j] += (final.textSize + final.dataSize);
 					}
@@ -240,12 +240,6 @@ int main(int argc, char *argv[])
 					}
 
 					continue;
-				}
-
-				// If this global label is .fill
-				if (strcmp(files[i].relocTable[j].inst, ".fill") == 0)
-				{
-					additonal_offset = files[i].textSize;
 				}
 
 				// Search for the global label
@@ -276,8 +270,28 @@ int main(int argc, char *argv[])
 				if (temp[0] == -1)
 					exit(1);
 
+				// If this global label is .fill
+				if (strcmp(files[i].relocTable[j].inst, ".fill") == 0)
+				{
+
+					// If the label is in text
+					if (temp[0] == 0)
+					{
+						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] += files[i].textStartingLine;
+					}
+					// If the label is in data
+					else
+					{
+						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] =
+							files[i].dataStartingLine +
+							files[i].data[files[i].relocTable[j].offset] - files[i].textSize;
+					}
+
+					continue;
+				}
+
 				// When the line using symbol is in text
-				if (files[i].relocTable[j].offset + additonal_offset < files[i].textSize)
+				if (files[i].relocTable[j].offset < files[i].textSize)
 				{
 					// If the label is in text
 					if (temp[0] == 0)
@@ -310,11 +324,27 @@ int main(int argc, char *argv[])
 			{
 				if (strcmp(files[i].relocTable[j].inst, ".fill") == 0)
 				{
-					additonal_offset = files[i].textSize;
+					text = files[i].data[files[i].relocTable[j].offset];
+					offset = text & 0x00FF;
+
+					// If the label is in text
+					if (offset < files[i].textSize)
+					{
+						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] -= offset;
+						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] += files[i].textStartingLine + offset;
+					}
+					// If the label is in data
+					else
+					{
+						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] -= offset;
+						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] += files[i].dataStartingLine + offset - files[i].textSize;
+					}
+
+					continue;
 				}
 
 				// When the line using symbol is in text
-				if (files[i].relocTable[j].offset + additonal_offset < files[i].textSize)
+				if (files[i].relocTable[j].offset < files[i].textSize)
 				{
 					// If the label is in text
 					if (offset < files[i].textSize)

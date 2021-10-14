@@ -4,11 +4,8 @@
 	lw	0	3	Seven
 	lw	0	4	A
 	lw	0	5	Ten
-Off	beq	0	0	next
-	nor	2	3	1
-next	add	5	1	6
-	halt
+Off	beq	0	0	end
+end	halt
 Six	.fill	6
-Eight	.fill	8
 OffV	.fill	Off
 Temp	.fill	Six
