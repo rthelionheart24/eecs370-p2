@@ -58,14 +58,18 @@ struct CombinedFiles
 	int relocTableSize;
 };
 
-int checkDuplicateGlobalandStack(CombinedFiles final);
+/*int checkDuplicateGlobalandStack(CombinedFiles final);
 int countTextSize(struct FileData files[MAXFILES], int argc);
 int countDataSize(struct FileData files[MAXFILES], int argc);
 int countSymbolTableSize(struct FileData files[MAXFILES], int argc);
 int countRelocationTableSize(struct FileData files[MAXFILES], int argc);
-
+int isUpper(char *string);
+*/
+int findGlobal(FileData files[MAXFILES], char *label, int argc);
 int main(int argc, char *argv[])
 {
+	int textStart = 0;
+	int totalLines = 0;
 	char *inFileString, *outFileString;
 	FILE *inFilePtr, *outFilePtr;
 	int i, j;
@@ -114,6 +118,8 @@ int main(int argc, char *argv[])
 		files[i].dataSize = sizeData;
 		files[i].symbolTableSize = sizeSymbol;
 		files[i].relocationTableSize = sizeReloc;
+		files[i].textStartingLine = textStart;
+		totalLines += files[i].textSize + files[i].dataSize;
 
 		// read in text section
 		int instr;
@@ -122,6 +128,7 @@ int main(int argc, char *argv[])
 			fgets(line, MAXLINELENGTH, inFilePtr);
 			instr = atoi(line);
 			files[i].text[j] = instr;
+			++textStart;
 		}
 
 		// read in data section
@@ -166,283 +173,223 @@ int main(int argc, char *argv[])
 	//    Begin the linking process
 	//    Happy coding!!!
 
-	CombinedFiles final;
-	final.textSize = countTextSize(files, argc);
-	final.dataSize = countDataSize(files, argc);
-	final.symTableSize = countSymbolTableSize(files, argc);
-	final.relocTableSize = countRelocationTableSize(files, argc);
-
-	files[0].textStartingLine = 0;
-	files[0].dataStartingLine = final.textSize;
-
-	for (int i = 1; i < argc - 2; i++)
+	int calcData = 0;
+	for (int i = 0; i < argc - 2; ++i)
 	{
-
-		files[i].textStartingLine = files[i - 1].textStartingLine + files[i - 1].textSize;
-		files[i].dataStartingLine = files[i - 1].dataStartingLine + files[i - 1].dataSize;
+		calcData += files[i].textSize;
 	}
-	int traceT = 0, traceD = final.textSize, traceR = 0, traceS = 0;
+	for (int i = 0; i < argc - 2; ++i)
+	{
+		files[i].dataStartingLine = calcData;
+		calcData += files[i].dataSize;
+	}
+
 	for (int i = 0; i < argc - 2; i++)
 	{
-		for (int t = 0; t < files[i].textSize; t++)
+		for (int j = 0; j < files[i].symbolTableSize; j++)
 		{
-			final.text[traceT++] = files[i].text[t];
-		}
-		for (int d = 0; d < files[i].dataSize; d++)
-		{
-			final.data[traceD++] = files[i].data[d];
-		}
-		for (int s = 0; s < files[i].symbolTableSize; s++)
-		{
-			if (files[i].symbolTable[s].location != 'U')
-				final.symTable[traceS++] = files[i].symbolTable[s];
-		}
-		for (int r = 0; r < files[i].relocationTableSize; r++)
-		{
-			final.relocTable[traceR++] = files[i].relocTable[r];
+			if (strcmp(files[i].symbolTable[j].label, "Stack") == 0 && files[i].symbolTable[j].location != 'U')
+				exit(1);
 		}
 	}
-	// ! Check for duplicate global labels and definition of Stack
-	if (checkDuplicateGlobalandStack(final) == 1)
-		exit(1);
+
+	for (int i = 0; i < argc - 2; ++i)
+	{
+		for (int j = 0; j < files[i].symbolTableSize; ++j)
+		{
+			if (isupper(files[i].symbolTable[j].label[0]) && files[i].symbolTable[j].location != 'U')
+			{
+				for (int k = 0; k < argc - 2; ++k)
+				{
+					for (int l = 0; l < files[k].symbolTableSize; ++l)
+					{
+						if (!strcmp(files[k].symbolTable[l].label, files[i].symbolTable[j].label) && files[k].symbolTable[l].location != 'U' && !(i == k && j == l))
+						{
+							printf("%s", "Duplicate global label");
+							exit(1);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	for (int i = 0; i < argc - 2; ++i)
+	{
+		for (int j = 0; j < files[i].symbolTableSize; ++j)
+		{
+			if (isupper(files[i].symbolTable[j].label[0]) && files[i].symbolTable[j].location == 'U' && strcmp(files[i].symbolTable[j].label, "Stack"))
+			{
+				int found = 0;
+				for (int k = 0; k < argc - 2; ++k)
+				{
+					for (int l = 0; l < files[k].symbolTableSize; ++l)
+					{
+						if (!strcmp(files[i].symbolTable[j].label, files[k].symbolTable[l].label) &&
+							files[k].symbolTable[l].location != 'U')
+						{
+							found = 1;
+						}
+					}
+				}
+				if (!found)
+				{
+					printf("%s", "Undefined global variable");
+					exit(1);
+				}
+			}
+		}
+	}
 
 	for (int i = 0; i < argc - 2; i++)
 	{
 		for (int j = 0; j < files[i].relocationTableSize; j++)
 		{
-			int text, offset;
-			text = files[i].text[files[i].relocTable[j].offset];
-			offset = text & 0x00FF;
 
 			// If the symbol involved is global
 			if (isupper(files[i].relocTable[j].label[0]))
 			{
-
-				int temp[2];
-				temp[0] = -1;
-
-				char global[7];
-				strcpy(global, files[i].relocTable[j].label);
-
-				// If this global label is "Stack"
-				if (strcmp(global, "Stack") == 0)
+				int globeStore = 0;
+				if (!strcmp(files[i].relocTable[j].inst, "lw") || !strcmp(files[i].relocTable[j].inst, "sw"))
 				{
-
-					// When the line using symbol is in text
-					if (files[i].relocTable[j].offset < files[i].textSize)
+					if (!strcmp(files[i].relocTable[j].label, "Stack"))
 					{
-						final.text[files[i].textStartingLine + j] += (final.textSize + final.dataSize);
+						files[i].text[files[i].relocTable[j].offset] += totalLines;
 					}
-					// When the line using the symbol is in data
 					else
 					{
-						final.data[files[i].textStartingLine + j] += (final.textSize + final.dataSize);
-					}
-
-					continue;
-				}
-
-				// Search for the global label
-				for (int i = 0; i < argc - 2; i++)
-				{
-					for (int j = 0; j < files[i].symbolTableSize; j++)
-					{
-
-						if (strcmp(files[i].symbolTable[j].label, global) == 0 && files[i].symbolTable[j].location != 'U')
+						for (int a = 0; a < files[i].symbolTableSize; ++a)
 						{
-							// If the global symbol is in text
-							if (files[i].symbolTable[j].location == 'T')
+							if (!strcmp(files[i].symbolTable[a].label, files[i].relocTable[j].label))
 							{
-								temp[0] = 0;
-								temp[1] = files[i].textStartingLine + files[i].symbolTable[j].offset;
-							}
-							// If the global symbol is in data
-							else
-							{
-								temp[0] = 1;
-								temp[1] = files[i].dataStartingLine + files[i].symbolTable[j].offset;
+								if (files[i].symbolTable[a].location == 'U')
+								{
+									globeStore = findGlobal(files, files[i].relocTable[j].label, argc - 2);
+								}
+								else if (files[i].symbolTable[a].location == 'T')
+								{
+									globeStore = files[i].textStartingLine;
+								}
+								else if (files[i].symbolTable[a].location == 'D')
+								{
+									globeStore = files[i].dataStartingLine - files[i].textSize;
+								}
 							}
 						}
+						files[i].text[files[i].relocTable[j].offset] += globeStore;
 					}
+
+					//final.text[files[i].textStartingLine + j] += globeStore;
 				}
-
-				// ! Error checking: when the global symbol is undefined
-				if (temp[0] == -1)
-					exit(1);
-
-				// If this global label is .fill
-				if (strcmp(files[i].relocTable[j].inst, ".fill") == 0)
+				else if (!strcmp(files[i].relocTable[j].inst, ".fill"))
 				{
-
-					// If the label is in text
-					if (temp[0] == 0)
+					if (!strcmp(files[i].relocTable[j].label, "Stack"))
 					{
-						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] += files[i].textStartingLine;
+						files[i].data[files[i].relocTable[j].offset] += totalLines;
 					}
-					// If the label is in data
 					else
 					{
-						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] =
-							files[i].dataStartingLine +
-							files[i].data[files[i].relocTable[j].offset] - files[i].textSize;
+						for (int a = 0; a < files[i].symbolTableSize; ++a)
+						{
+							if (!strcmp(files[i].symbolTable[a].label, files[i].relocTable[j].label))
+							{
+								if (files[i].symbolTable[a].location == 'U')
+								{
+									globeStore = findGlobal(files, files[i].relocTable[j].label, argc - 2);
+								}
+								else if (files[i].symbolTable[a].location == 'T')
+								{
+									globeStore = files[i].textStartingLine + files[i].symbolTable[a].offset;
+								}
+								else if (files[i].symbolTable[a].location == 'D')
+								{
+									globeStore = files[i].dataStartingLine + files[i].symbolTable[a].offset;
+								}
+							}
+						}
+						files[i].data[files[i].relocTable[j].offset] = globeStore;
 					}
 
-					continue;
-				}
-
-				// When the line using symbol is in text
-				if (files[i].relocTable[j].offset < files[i].textSize)
-				{
-					// If the label is in text
-					if (temp[0] == 0)
-					{
-						final.text[files[i].textStartingLine + j] += temp[1];
-					}
-					// If the label is in data
-					else
-					{
-						final.text[files[i].textStartingLine + j] += temp[1];
-					}
-				}
-				// When the line using the symbol is in data
-				else
-				{
-					// If the label is in text
-					if (temp[0] == 0)
-					{
-						final.data[files[i].dataStartingLine + j] += temp[1];
-					}
-					// If the label is in data
-					else
-					{
-						final.data[files[i].dataStartingLine + j] += temp[1];
-					}
+					//final.data[files[i].dataStartingLine + j] = globeStore;
 				}
 			}
 			// Local label
 			else
 			{
-				if (strcmp(files[i].relocTable[j].inst, ".fill") == 0)
+				if (!strcmp(files[i].relocTable[j].inst, "lw") || !strcmp(files[i].relocTable[j].inst, "sw"))
 				{
-					text = files[i].data[files[i].relocTable[j].offset];
-					offset = text & 0x00FF;
-
-					// If the label is in text
+					int offset = files[i].text[files[i].relocTable[j].offset] & 0x00FF;
+					//	printf("%s\n", files[i].relocTable[j].inst);
+					//	printf("%s\n", files[i].relocTable[j].label);
+					//	printf("%s%d\n", "offset: ", offset);
+					int temp = 0;
 					if (offset < files[i].textSize)
 					{
-						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] -= offset;
-						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] += files[i].textStartingLine + offset;
+						temp = files[i].textStartingLine + offset;
 					}
-					// If the label is in data
 					else
 					{
-						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] -= offset;
-						final.data[files[i].dataStartingLine + files[i].relocTable[j].offset] += files[i].dataStartingLine + offset - files[i].textSize;
+						temp = files[i].dataStartingLine + offset - files[i].textSize;
 					}
-
-					continue;
+					temp -= offset;
+					//	printf("%s%d\n", "OFFSET ORiginal", files[i].text[files[i].relocTable[j].offset]);
+					//	printf("%s%d\n", "temp: ", temp);
+					files[i].text[files[i].relocTable[j].offset] += temp;
 				}
-
-				// When the line using symbol is in text
-				if (files[i].relocTable[j].offset < files[i].textSize)
+				else if (!strcmp(files[i].relocTable[j].inst, ".fill"))
 				{
-					// If the label is in text
-					if (offset < files[i].textSize)
+					int temp = files[i].data[files[i].relocTable[j].offset];
+					if (temp < files[i].textSize)
 					{
-						final.text[files[i].textStartingLine + j] -= offset;
-						final.text[files[i].textStartingLine + j] += files[i].textStartingLine + offset;
+						temp = files[i].textStartingLine + temp;
 					}
-					// If the label is in data
 					else
 					{
-						final.text[files[i].textStartingLine + j] -= offset;
-						final.text[files[i].textStartingLine + j] += files[i].dataStartingLine + offset - files[i].textSize;
+						temp = files[i].dataStartingLine + temp - files[i].textSize;
 					}
-				}
-				// When the line using the symbol is in data
-				else
-				{
-					// If the label is in text
-					if (offset < files[i].textSize)
-					{
-						final.data[files[i].dataStartingLine + j] -= offset;
-						final.data[files[i].dataStartingLine + j] += files[i].textStartingLine + offset;
-					}
-					// If the label is in data
-					else
-					{
-						final.data[files[i].dataStartingLine + j] -= offset;
-						final.data[files[i].dataStartingLine + j] += files[i].dataStartingLine + offset - files[i].textSize;
-					}
+					files[i].data[files[i].relocTable[j].offset] = temp;
 				}
 			}
 		}
 	}
-
-	for (int t = 0; t < final.textSize; t++)
+	for (int i = 0; i < argc - 2; ++i)
 	{
-		fprintf(outFilePtr, "%d\n", final.text[t]);
-	}
-	for (int d = final.textSize; d < final.textSize + final.dataSize; d++)
-	{
-		fprintf(outFilePtr, "%d\n", final.data[d]);
-	}
-
-	return 0;
-} // main
-
-int checkDuplicateGlobalandStack(CombinedFiles final)
-{
-	for (int g = 0; g < final.symTableSize; g++)
-	{
-		for (int j = 0; j < final.symTableSize && g != j; j++)
-			if (strcmp(final.symTable[g].label, final.symTable[j].label) == 0 || strcmp(final.symTable[g].label, "Stack") == 0)
-				return 1;
-	}
-
-	return 0;
-}
-
-int countTextSize(FileData files[MAXFILES], int argc)
-{
-	int count = 0;
-	for (int i = 0; i < argc - 2; i++)
-	{
-		count += files[i].textSize;
-	}
-	return count;
-}
-
-int countDataSize(FileData files[MAXFILES], int argc)
-{
-	int count = 0;
-	for (int i = 0; i < argc - 2; i++)
-	{
-		count += files[i].dataSize;
-	}
-	return count;
-}
-
-int countSymbolTableSize(struct FileData files[MAXFILES], int argc)
-{
-	int count = 0;
-	for (int i = 0; i < argc - 2; i++)
-	{
-		for (int j = 0; j < files[i].symbolTableSize; j++)
+		for (int j = 0; j < files[i].textSize; ++j)
 		{
-			if (files[i].symbolTable[j].location != 'U')
-				count++;
+			fprintf(outFilePtr, "%d\n", files[i].text[j]);
 		}
 	}
-	return count;
+
+	for (int i = 0; i < argc - 2; ++i)
+	{
+		for (int j = 0; j < files[i].dataSize; ++j)
+		{
+			fprintf(outFilePtr, "%d\n", files[i].data[j]);
+		}
+	}
+
+	return 0;
 }
 
-int countRelocationTableSize(struct FileData files[MAXFILES], int argc)
+int findGlobal(FileData files[MAXFILES], char *label, int argc)
 {
-	int count = 0;
-	for (int i = 0; i < argc - 2; i++)
+	int pos = -1;
+	for (int i = 0; i < argc; ++i)
 	{
-		count += files[i].relocationTableSize;
+		for (int j = 0; j < files[i].symbolTableSize; ++j)
+		{
+			if (!strcmp(files[i].symbolTable[j].label, label))
+			{
+				if (files[i].symbolTable[j].location == 'D')
+				{
+					pos = files[i].dataStartingLine + files[i].symbolTable[j].offset;
+				}
+				else if (files[i].symbolTable[j].location == 'T')
+				{
+					pos = files[i].textStartingLine + files[i].symbolTable[j].offset;
+				}
+			}
+		}
 	}
-	return count;
+	return pos;
 }
